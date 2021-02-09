@@ -5,6 +5,7 @@ import traceback
 import sys
 import requests
 import pycountry
+import argparse
 
 GEO_CACHE_FILE_NAME='db/geo-cache.json'
 OUTPUT_JSON_FILE_NAME='output.json'
@@ -35,8 +36,8 @@ def update_one_dict(key, r, ip, d):
         d[key] = v
     else:
         v['count'] = v['count'] + 1
-    
-def update_dict(rule, src_ip, output, db): 
+   
+def update_dict(rule, src_ip, output, db):
     key = src_ip + "+" + rule
     update_one_dict(key, rule, src_ip, output)
     update_one_dict(key, rule, src_ip, db)
@@ -55,20 +56,45 @@ def process_file(fname, pat, output, db):
     Lines = file1.readlines()
     for line in Lines:
         try:
-            s1 = pat.search(line.strip()) 
+            s1 = pat.search(line.strip())
             if s1 is not None:
                 update_dict(s1.group(1), s1.group(4), output, db)
         except Exception:
             traceback.print_exc()
 
+def get_folder():
+    # Create the parser
+    my_parser = argparse.ArgumentParser(description='Input the folder that contains the raw message files')
+
+    # Add the arguments
+    my_parser.add_argument('Path',
+                       metavar='path',
+                       type=str,
+                       default='.',
+                       nargs='?',
+                       help='the path to message files')
+
+    # Execute the parse_args() method
+    args = my_parser.parse_args()
+
+    input_path = args.Path
+
+    if not os.path.isdir(input_path):
+        print('The path specified does not exist')
+        sys.exit()
+
+    return input_path
+
 
 def main():
+    path_name = get_folder()
+
     #pat = re.compile('SRC=(.*?) DST=(.*?) LEN=')
     #pat = re.compile('\[(.*?)\]IN=(.*?) SRC=(.*?) DST=(.*?) LEN=')
     #pat = re.compile('\[(.*?)\]IN=')
     #pat = re.compile('SRC=(.*?) DST=(.*?)[\s]')
     pat = re.compile('\[(.*?)\]IN=(.*?) OUT= (.*?) SRC=(.*?) DST=(.*?) LEN=')
-   
+  
     # for current run output
     output = {}
 
@@ -77,21 +103,25 @@ def main():
     try:
         with open(GEO_CACHE_FILE_NAME) as f:
             db = json.load(f)
-    except: 
+    except:
         print("geo cache file not found")
         db = {}
-    
-    for file in os.listdir("."):
+   
+    for file in os.listdir(path_name):
         #if file.startswith("test-messages"):
         if file.startswith("messages"):
-            process_file(file, pat, output, db)
-   
+            process_file(os.path.join(path_name, file), pat, output, db)
+ 
+    if len(output) == 0:
+        print('No message file found')
+        sys.exit()
+
     ## output results
     json.dump(output, open(OUTPUT_JSON_FILE_NAME, 'w'))
 
     fmt="{:<2},{:<20},country={:<30},region={:<25},city={:<25},count={:<8}\n"
     with open(OUTPUT_TXT_FILE_NAME, 'w') as f:
-        for key in output: 
+        for key in output:
             v = output[key]
             g = output[key]['geo']
             if g is not None:
@@ -103,18 +133,17 @@ def main():
                     country_name = g.get('country')
 
                 try:
-                    f.write(fmt.format(v.get('rule')[-1], 
-                        v.get('src_ip'), 
+                    f.write(fmt.format(v.get('rule')[-1],
+                        v.get('src_ip'),
                         country_name,
-                        g.get('region'), 
-                        g.get('city'), 
+                        g.get('region'),
+                        g.get('city'),
                         v.get('count')))
                 except:
                     print(v.get('rule'), v.get('src_ip'), country_name, g.get('region'), g.get('city'), v.get('count'))
-                # print(f"{v.get('src_ip')}, country={g.get('country')}, region={g.get('region')}, city={g.get('city')}, count={v.get('count')}")
-    
-    print('total entries: ', len(output))
    
+    print('total entries: ', len(output))
+  
     ## update geo cache file
     json.dump(db, open(GEO_CACHE_FILE_NAME, 'w'))
 
